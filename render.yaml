@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: openclaw-bot
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: GEMINI_API_KEY
+        value: AIzaSyC1vns7Yv0PcULd9sIv5eccrTMN-P1riX8
