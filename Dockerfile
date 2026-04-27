@@ -1,6 +1,6 @@
 FROM node:22-bullseye
 
-# Install required dependencies for OpenClaw's browser skills and SQLite
+# Install required dependencies
 RUN apt-get update && apt-get install -y \
     unzip \
     ca-certificates \
@@ -39,21 +39,31 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     wget \
     xdg-utils \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # Install OpenClaw globally
 RUN npm install -g openclaw@latest
 
+# Create openclaw config directory
+RUN mkdir -p /root/.openclaw/workspace /root/.openclaw/credentials /root/.openclaw/identity
+
 WORKDIR /app
 
-# Copy configuration and startup scripts
+# Copy everything
 COPY . /app/
 
-# Make startup script executable
-RUN chmod +x start.sh
+# CRITICAL: Fix Windows CRLF line endings -> Unix LF
+RUN dos2unix /app/start.sh && chmod +x /app/start.sh
 
-# Expose port (for cloud provider health checks)
-EXPOSE 18789
+# Extract the WhatsApp session and credentials into the correct directory
+RUN if [ -f /app/openclaw_config.zip ]; then \
+      unzip -o /app/openclaw_config.zip -d /root/.openclaw/ && \
+      echo "Config extracted successfully:" && \
+      ls -la /root/.openclaw/ ; \
+    fi
 
-# Start openclaw gateway
-CMD ["./start.sh"]
+# Expose the port Render will use (10000 is Render's default)
+EXPOSE 10000
+
+CMD ["/app/start.sh"]

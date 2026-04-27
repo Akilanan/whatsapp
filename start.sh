@@ -1,81 +1,130 @@
 #!/bin/bash
-echo "Starting OpenClaw in the Cloud..."
+set -e
+echo "=== OpenClaw Cloud Startup ==="
 
-# Ensure the config directory exists
-mkdir -p /root/.openclaw
+CONFIG_PATH="/root/.openclaw/openclaw.json"
 
-# Extract the config zip into the correct .openclaw directory
-if [ -f "/app/openclaw_config.zip" ]; then
-    echo "Restoring OpenClaw configuration and WhatsApp session..."
-    unzip -o /app/openclaw_config.zip -d /root/.openclaw/
-    echo "Config files extracted:"
-    ls -la /root/.openclaw/
+# Verify config exists
+if [ ! -f "$CONFIG_PATH" ]; then
+    echo "FATAL: $CONFIG_PATH not found!"
+    ls -laR /root/.openclaw/
+    exit 1
 fi
 
-# Set cloud AI models to avoid local compute requirement
-if [ ! -z "$GEMINI_API_KEY" ]; then
-    echo "Configuring Google Gemini Cloud Model..."
+echo "Config file found. Patching for cloud environment..."
 
-    # Write the full provider config directly into openclaw.json
-    node -e "
-      const fs = require('fs');
-      const cfgPath = '/root/.openclaw/openclaw.json';
-      if (!fs.existsSync(cfgPath)) {
-        console.error('ERROR: openclaw.json not found at ' + cfgPath);
-        process.exit(1);
-      }
-      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+# Patch the config for cloud deployment using Node.js
+# This fixes ALL issues: model, paths, auth, binding, plugins, etc.
+node -e "
+const fs = require('fs');
+const cfg = JSON.parse(fs.readFileSync('$CONFIG_PATH', 'utf8'));
 
-      // Add Google Gemini provider
-      cfg.models = cfg.models || {};
-      cfg.models.providers = cfg.models.providers || {};
-      cfg.models.providers.google = {
-        api: 'google',
-        apiKey: process.env.GEMINI_API_KEY,
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-        models: [{
-          id: 'gemini-1.5-flash-latest',
-          name: 'Gemini 1.5 Flash',
-          contextWindow: 1048576,
-          maxTokens: 8192,
-          input: ['text', 'image'],
-          reasoning: false,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-        }]
-      };
+// ==========================================
+// 1. GOOGLE GEMINI - Free Cloud AI Model
+// ==========================================
+const apiKey = process.env.GEMINI_API_KEY || '';
+if (!apiKey) {
+  console.error('WARNING: GEMINI_API_KEY not set!');
+}
 
-      // Set default model to Gemini
-      cfg.agents = cfg.agents || {};
-      cfg.agents.defaults = cfg.agents.defaults || {};
-      cfg.agents.defaults.model = { primary: 'google/gemini-1.5-flash-latest' };
+cfg.models = cfg.models || {};
+cfg.models.mode = 'merge';
+cfg.models.providers = {
+  google: {
+    api: 'google',
+    apiKey: apiKey,
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    models: [{
+      id: 'gemini-1.5-flash-latest',
+      name: 'Gemini 1.5 Flash',
+      contextWindow: 1048576,
+      maxTokens: 8192,
+      input: ['text', 'image'],
+      reasoning: false,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+    }]
+  }
+};
+// Remove ollama entirely - no local model server in the cloud
+delete cfg.models.providers.ollama;
 
-      // Fix workspace path for Linux
-      cfg.agents.defaults.workspace = '/root/.openclaw/workspace';
+// ==========================================
+// 2. SET DEFAULT MODEL TO GEMINI
+// ==========================================
+cfg.agents = cfg.agents || {};
+cfg.agents.defaults = cfg.agents.defaults || {};
+cfg.agents.defaults.model = { primary: 'google/gemini-1.5-flash-latest' };
+cfg.agents.defaults.workspace = '/root/.openclaw/workspace';
 
-      // Remove ollama provider since we don't need it in the cloud
-      if (cfg.models.providers.ollama) delete cfg.models.providers.ollama;
+// ==========================================
+// 3. GATEWAY - Bind to all interfaces, disable auth for health checks
+// ==========================================
+const port = parseInt(process.env.PORT) || 10000;
+cfg.gateway = cfg.gateway || {};
+cfg.gateway.bind = 'custom';
+cfg.gateway.customBind = '0.0.0.0';
+cfg.gateway.port = port;
+cfg.gateway.mode = 'local';
+cfg.gateway.auth = { mode: 'none' };
+delete cfg.gateway.tailscale;
 
-      // Disable problematic plugins
-      cfg.plugins = cfg.plugins || {};
-      cfg.plugins.entries = cfg.plugins.entries || {};
-      cfg.plugins.entries.bonjour = { enabled: false };
-      cfg.plugins.entries.zalouser = { enabled: false };
+// ==========================================
+// 4. DISABLE ALL CRASHING PLUGINS
+// ==========================================
+cfg.plugins = cfg.plugins || {};
+cfg.plugins.entries = cfg.plugins.entries || {};
+cfg.plugins.entries.bonjour = { enabled: false };
+cfg.plugins.entries.zalouser = { enabled: false };
+cfg.plugins.entries.ollama = { enabled: false };
 
-      // Set gateway to bind on all interfaces
-      cfg.gateway = cfg.gateway || {};
-      cfg.gateway.bind = '0.0.0.0';
+// ==========================================
+// 5. DISABLE ZALOUSER CHANNEL
+// ==========================================
+if (cfg.channels && cfg.channels.zalouser) {
+  cfg.channels.zalouser.enabled = false;
+}
 
-      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-      console.log('Gemini configuration written successfully.');
-      console.log('Model: google/gemini-1.5-flash-latest');
-    "
-else
-    echo "WARNING: No GEMINI_API_KEY provided! Set it in your Render Environment tab."
-fi
+// Remove zalouser bindings
+if (cfg.bindings) {
+  cfg.bindings = cfg.bindings.filter(b => b.match.channel !== 'zalouser');
+}
 
-# Use PORT env variable from Render (Render assigns port 10000), default to 18789
-export PORT="${PORT:-18789}"
+// ==========================================
+// 6. FIX TOOLS - Remove ollama reference
+// ==========================================
+if (cfg.tools && cfg.tools.web && cfg.tools.web.search) {
+  cfg.tools.web.search.provider = 'google';
+}
 
-# Start the gateway
-echo "Launching OpenClaw Gateway on port $PORT..."
-exec openclaw gateway --port "$PORT"
+// Write the patched config
+fs.writeFileSync('$CONFIG_PATH', JSON.stringify(cfg, null, 2));
+console.log('=== Config patched successfully ===');
+console.log('Model: google/gemini-1.5-flash-latest');
+console.log('Gateway port: ' + port);
+console.log('Gateway bind: 0.0.0.0');
+console.log('Auth: none (for health checks)');
+console.log('Disabled plugins: bonjour, zalouser, ollama');
+"
+
+echo ""
+echo "Final config:"
+cat "$CONFIG_PATH"
+echo ""
+
+# Use Render's PORT env var (defaults to 10000)
+PORT="${PORT:-10000}"
+
+echo ""
+echo "=== Starting OpenClaw Gateway on 0.0.0.0:$PORT ==="
+echo ""
+
+# Use exec so the process gets signals properly
+# Use --allow-unconfigured to skip strict config validation
+# Use --bind custom to allow 0.0.0.0 binding
+# Use --auth none to allow Render health checks
+exec openclaw gateway run \
+  --port "$PORT" \
+  --bind custom \
+  --auth none \
+  --allow-unconfigured \
+  --verbose
