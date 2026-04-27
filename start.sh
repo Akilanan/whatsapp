@@ -27,7 +27,7 @@ cfg.models = cfg.models || {};
 cfg.models.mode = 'merge';
 cfg.models.providers = {
   google: {
-    api: 'google',
+    api: 'google-generative-ai',
     apiKey: apiKey,
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     models: [{
