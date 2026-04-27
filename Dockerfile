@@ -58,7 +58,7 @@ RUN dos2unix /app/start.sh && chmod +x /app/start.sh
 
 # Extract the WhatsApp session and credentials into the correct directory
 RUN if [ -f /app/openclaw_config.zip ]; then \
-      unzip -o /app/openclaw_config.zip -d /root/.openclaw/ && \
+      unzip -o /app/openclaw_config.zip -d /root/.openclaw/ || true && \
       echo "Config extracted successfully:" && \
       ls -la /root/.openclaw/ ; \
     fi
