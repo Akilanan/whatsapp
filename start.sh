@@ -2,22 +2,28 @@
 echo "Starting OpenClaw in the Cloud..."
 
 # Ensure the config directory exists
-mkdir -p ~/.openclaw
+mkdir -p /root/.openclaw
 
-# If a config zip is provided, extract it
-if [ -f "openclaw_config.zip" ]; then
+# Extract the config zip into the correct .openclaw directory
+if [ -f "/app/openclaw_config.zip" ]; then
     echo "Restoring OpenClaw configuration and WhatsApp session..."
-    unzip -o openclaw_config.zip -d ~/
+    unzip -o /app/openclaw_config.zip -d /root/.openclaw/
+    echo "Config files extracted:"
+    ls -la /root/.openclaw/
 fi
 
 # Set cloud AI models to avoid local compute requirement
 if [ ! -z "$GEMINI_API_KEY" ]; then
     echo "Configuring Google Gemini Cloud Model..."
 
-    # Write the full provider config as JSON directly into openclaw.json
+    # Write the full provider config directly into openclaw.json
     node -e "
       const fs = require('fs');
-      const cfgPath = require('os').homedir() + '/.openclaw/openclaw.json';
+      const cfgPath = '/root/.openclaw/openclaw.json';
+      if (!fs.existsSync(cfgPath)) {
+        console.error('ERROR: openclaw.json not found at ' + cfgPath);
+        process.exit(1);
+      }
       const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 
       // Add Google Gemini provider
@@ -43,26 +49,33 @@ if [ ! -z "$GEMINI_API_KEY" ]; then
       cfg.agents.defaults = cfg.agents.defaults || {};
       cfg.agents.defaults.model = { primary: 'google/gemini-1.5-flash-latest' };
 
+      // Fix workspace path for Linux
+      cfg.agents.defaults.workspace = '/root/.openclaw/workspace';
+
       // Remove ollama provider since we don't need it in the cloud
-      delete cfg.models.providers.ollama;
+      if (cfg.models.providers.ollama) delete cfg.models.providers.ollama;
+
+      // Disable problematic plugins
+      cfg.plugins = cfg.plugins || {};
+      cfg.plugins.entries = cfg.plugins.entries || {};
+      cfg.plugins.entries.bonjour = { enabled: false };
+      cfg.plugins.entries.zalouser = { enabled: false };
+
+      // Set gateway to bind on all interfaces
+      cfg.gateway = cfg.gateway || {};
+      cfg.gateway.bind = '0.0.0.0';
 
       fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
       console.log('Gemini configuration written successfully.');
+      console.log('Model: google/gemini-1.5-flash-latest');
     "
-elif [ ! -z "$GROQ_API_KEY" ]; then
-    echo "Configuring Groq Cloud Model..."
-    openclaw config set models.providers.groq.apiKey "$GROQ_API_KEY"
-    openclaw config set agents.defaults.model.primary "groq/llama3-8b-8192"
 else
-    echo "WARNING: No Cloud API Key provided! Please set GEMINI_API_KEY or GROQ_API_KEY in your cloud dashboard."
+    echo "WARNING: No GEMINI_API_KEY provided! Set it in your Render Environment tab."
 fi
 
-# Disable bonjour since it crashes in strict cloud networking environments
-openclaw plugins disable bonjour 2>/dev/null || true
+# Use PORT env variable from Render (Render assigns port 10000), default to 18789
+export PORT="${PORT:-18789}"
 
-# Use PORT env variable from Render, default to 18789
-export OPENCLAW_PORT="${PORT:-18789}"
-
-# Start the gateway, binding to 0.0.0.0 so the cloud platform can route to it
-echo "Launching OpenClaw Gateway on port $OPENCLAW_PORT..."
-openclaw gateway --port "$OPENCLAW_PORT"
+# Start the gateway
+echo "Launching OpenClaw Gateway on port $PORT..."
+exec openclaw gateway --port "$PORT"
