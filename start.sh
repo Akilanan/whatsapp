@@ -65,7 +65,7 @@ cfg.gateway = cfg.gateway || {};
 cfg.gateway.bind = 'lan';
 cfg.gateway.port = port;
 cfg.gateway.mode = 'local';
-cfg.gateway.auth = { mode: 'none' };
+cfg.gateway.auth = { mode: 'token', token: 'render-cloud-token-2026' };
 delete cfg.gateway.tailscale;
 
 // ==========================================
@@ -125,6 +125,7 @@ echo ""
 exec openclaw gateway run \
   --port "$PORT" \
   --bind lan \
-  --auth none \
+  --auth token \
+  --token "render-cloud-token-2026" \
   --allow-unconfigured \
   --verbose 2>&1
