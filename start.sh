@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e
+# Don't exit on non-critical errors
+set +e
 echo "=== OpenClaw Cloud Startup ==="
 
 CONFIG_PATH="/root/.openclaw/openclaw.json"
@@ -61,8 +62,7 @@ cfg.agents.defaults.workspace = '/root/.openclaw/workspace';
 // ==========================================
 const port = parseInt(process.env.PORT) || 10000;
 cfg.gateway = cfg.gateway || {};
-cfg.gateway.bind = 'custom';
-cfg.gateway.customBind = '0.0.0.0';
+cfg.gateway.bind = 'lan';
 cfg.gateway.port = port;
 cfg.gateway.mode = 'local';
 cfg.gateway.auth = { mode: 'none' };
@@ -124,7 +124,7 @@ echo ""
 # Use --auth none to allow Render health checks
 exec openclaw gateway run \
   --port "$PORT" \
-  --bind custom \
+  --bind lan \
   --auth none \
   --allow-unconfigured \
-  --verbose
+  --verbose 2>&1
