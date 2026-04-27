@@ -1,4 +1,4 @@
-FROM node:20-bullseye
+FROM node:22-bullseye
 
 # Install required dependencies for OpenClaw's browser skills and SQLite
 RUN apt-get update && apt-get install -y \
