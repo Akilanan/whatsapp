@@ -5,6 +5,11 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     healthCheckPath: /
+    autoDeploy: false
     envVars:
+      - key: PORT
+        value: "10000"
       - key: GEMINI_API_KEY
         value: AIzaSyC1vns7Yv0PcULd9sIv5eccrTMN-P1riX8
+      - key: OPENCLAW_GATEWAY_TOKEN
+        value: render-cloud-token-2026

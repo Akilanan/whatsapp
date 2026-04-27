@@ -55,6 +55,9 @@ cfg.gateway.bind = 'lan';
 cfg.gateway.port = port;
 cfg.gateway.mode = 'local';
 cfg.gateway.auth = { mode: 'token', token: 'render-cloud-token-2026' };
+cfg.gateway.controlUi = {
+    dangerouslyAllowHostHeaderOriginFallback: true
+  };
 delete cfg.gateway.tailscale;
 
 // 4. DISABLE CRASHING PLUGINS
