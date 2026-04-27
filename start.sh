@@ -15,18 +15,13 @@ fi
 echo "Config file found. Patching for cloud environment..."
 
 # Patch the config for cloud deployment using Node.js
-# This fixes ALL issues: model, paths, auth, binding, plugins, etc.
 node -e "
 const fs = require('fs');
 const cfg = JSON.parse(fs.readFileSync('$CONFIG_PATH', 'utf8'));
 
-// ==========================================
-// 1. GOOGLE GEMINI - Free Cloud AI Model
-// ==========================================
+// 1. GOOGLE GEMINI
 const apiKey = process.env.GEMINI_API_KEY || '';
-if (!apiKey) {
-  console.error('WARNING: GEMINI_API_KEY not set!');
-}
+if (!apiKey) console.error('WARNING: GEMINI_API_KEY not set!');
 
 cfg.models = cfg.models || {};
 cfg.models.mode = 'merge';
@@ -46,20 +41,14 @@ cfg.models.providers = {
     }]
   }
 };
-// Remove ollama entirely - no local model server in the cloud
-delete cfg.models.providers.ollama;
 
-// ==========================================
-// 2. SET DEFAULT MODEL TO GEMINI
-// ==========================================
+// 2. SET DEFAULT MODEL
 cfg.agents = cfg.agents || {};
 cfg.agents.defaults = cfg.agents.defaults || {};
 cfg.agents.defaults.model = { primary: 'google/gemini-1.5-flash-latest' };
 cfg.agents.defaults.workspace = '/root/.openclaw/workspace';
 
-// ==========================================
-// 3. GATEWAY - Bind to all interfaces, disable auth for health checks
-// ==========================================
+// 3. GATEWAY CONFIG
 const port = parseInt(process.env.PORT) || 10000;
 cfg.gateway = cfg.gateway || {};
 cfg.gateway.bind = 'lan';
@@ -68,64 +57,48 @@ cfg.gateway.mode = 'local';
 cfg.gateway.auth = { mode: 'token', token: 'render-cloud-token-2026' };
 delete cfg.gateway.tailscale;
 
-// ==========================================
-// 4. DISABLE ALL CRASHING PLUGINS
-// ==========================================
+// 4. DISABLE CRASHING PLUGINS
 cfg.plugins = cfg.plugins || {};
 cfg.plugins.entries = cfg.plugins.entries || {};
 cfg.plugins.entries.bonjour = { enabled: false };
 cfg.plugins.entries.zalouser = { enabled: false };
 cfg.plugins.entries.ollama = { enabled: false };
+cfg.plugins.entries.browser = { enabled: false };
+cfg.plugins.entries['device-pair'] = { enabled: false };
+cfg.plugins.entries['phone-control'] = { enabled: false };
+cfg.plugins.entries['talk-voice'] = { enabled: false };
 
-// ==========================================
 // 5. DISABLE ZALOUSER CHANNEL
-// ==========================================
-if (cfg.channels && cfg.channels.zalouser) {
-  cfg.channels.zalouser.enabled = false;
-}
+if (cfg.channels && cfg.channels.zalouser) cfg.channels.zalouser.enabled = false;
+if (cfg.bindings) cfg.bindings = cfg.bindings.filter(b => b.match.channel !== 'zalouser');
 
-// Remove zalouser bindings
-if (cfg.bindings) {
-  cfg.bindings = cfg.bindings.filter(b => b.match.channel !== 'zalouser');
-}
+// 6. FIX TOOLS
+if (cfg.tools && cfg.tools.web && cfg.tools.web.search) cfg.tools.web.search.provider = 'google';
 
-// ==========================================
-// 6. FIX TOOLS - Remove ollama reference
-// ==========================================
-if (cfg.tools && cfg.tools.web && cfg.tools.web.search) {
-  cfg.tools.web.search.provider = 'google';
-}
-
-// Write the patched config
 fs.writeFileSync('$CONFIG_PATH', JSON.stringify(cfg, null, 2));
-console.log('=== Config patched successfully ===');
-console.log('Model: google/gemini-1.5-flash-latest');
-console.log('Gateway port: ' + port);
-console.log('Gateway bind: 0.0.0.0');
-console.log('Auth: none (for health checks)');
-console.log('Disabled plugins: bonjour, zalouser, ollama');
+console.log('Config patched. Model: google/gemini-1.5-flash-latest, Port: ' + port);
 "
 
-echo ""
-echo "Final config:"
-cat "$CONFIG_PATH"
-echo ""
+if [ $? -ne 0 ]; then
+    echo "FATAL: Config patching failed!"
+    exit 1
+fi
 
-# Use Render's PORT env var (defaults to 10000)
+# Use Render's PORT
 PORT="${PORT:-10000}"
 
-echo ""
 echo "=== Starting OpenClaw Gateway on 0.0.0.0:$PORT ==="
-echo ""
 
-# Use exec so the process gets signals properly
-# Use --allow-unconfigured to skip strict config validation
-# Use --bind custom to allow 0.0.0.0 binding
-# Use --auth none to allow Render health checks
-exec openclaw gateway run \
+# Start gateway - use node directly to run openclaw to get proper error output
+# Find the actual openclaw entry point
+OPENCLAW_BIN=$(which openclaw)
+echo "OpenClaw binary: $OPENCLAW_BIN"
+
+# Run with node directly for better error reporting
+node --no-warnings "$OPENCLAW_BIN" gateway \
   --port "$PORT" \
   --bind lan \
   --auth token \
   --token "render-cloud-token-2026" \
   --allow-unconfigured \
-  --verbose 2>&1
+  --verbose
